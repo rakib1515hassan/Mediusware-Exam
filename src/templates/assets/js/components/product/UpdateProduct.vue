@@ -31,33 +31,45 @@
 
       <div class="col-md-6">
         <div class="card shadow mb-4">
+
           <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
             <h6 class="m-0 font-weight-bold text-primary">Variants</h6>
           </div>
+
           <div class="card-body">
-            <div class="row" v-for="(item,index) in product_variant">
+            <div class="row" v-for="(variant, index) in product_variant" :key="variant">
+
+              <!-- Show Option -->
               <div class="col-md-4">
-                <div class="form-group">
-                  <label for="">Option</label>
-                  <select v-model="item.option" class="form-control">
-                    <option v-for="variant in variants"
-                            :value="variant.id">
-                      {{ variant.title }}
-                    </option>
-                  </select>
-                </div>
+                  <div class="form-group">
+                      <label for="">Option</label>
+                      <select v-model="variant.selectedOption" class="form-control">
+                          <option v-for="(option, optionIndex) in variants" :key="optionIndex" :value="option.id" 
+                              :selected="option.id === parseInt(variant.v_id)">
+                              {{ option.title }}
+                          </option>
+                      </select>
+                  </div>
               </div>
+
+              <!-- Show Array of Option Data -->
               <div class="col-md-8">
                 <div class="form-group">
-                  <label v-if="product_variant.length != 1" @click="product_variant.splice(index,1); checkVariant"
-                         class="float-right text-primary"
-                         style="cursor: pointer;">Remove</label>
+                  <label v-if="product_variant.length !== 1" @click="product_variant.splice(index, 1); checkVariant"
+                    class="float-right text-primary"
+                    style="cursor: pointer;">Remove</label>
                   <label v-else for="">.</label>
-                  <input-tag v-model="item.tags" @input="checkVariant" class="form-control"></input-tag>
+                  <input-tag v-model="variant.tags" @input="checkVariant" class="form-control"></input-tag>
                 </div>
               </div>
+              
             </div>
           </div>
+
+
+
+
+          
           <div class="card-footer" v-if="product_variant.length < variants.length && product_variant.length < 3">
             <button @click="newVariant" class="btn btn-primary">Add another option</button>
           </div>
@@ -74,7 +86,7 @@
                 </tr>
                 </thead>
                 <tbody>
-                <tr v-for="variant_price in product_variant_prices">
+                <tr v-for="variant_price in product_variant_prices" :key="variant_price">
                   <td>{{ variant_price.title }}</td>
                   <td>
                     <input type="text" class="form-control" v-model="variant_price.price">
@@ -91,7 +103,7 @@
       </div>
     </div>
 
-    <button @click="saveProduct" type="submit" class="btn btn-lg btn-primary">Save</button>
+    <button @click="updateProduct" type="submit" class="btn btn-lg btn-primary" style="margin-right: 18px;">Update</button>
     <button type="button" class="btn btn-secondary btn-lg">Cancel</button>
   </section>
 </template>
@@ -105,14 +117,24 @@ import axios from 'axios'
 export default {
   components: {
     vueDropzone: vue2Dropzone,
-    InputTag
+    InputTag,
   },
+
+
+
   props: {
     variants: {
       type: Array,
       required: true
-    }
+    },
+    productId: {
+      type: Number,
+      required: true
+    },
   },
+
+
+
   data() {
     return {
       product_name: '',
@@ -122,19 +144,85 @@ export default {
       product_variant: [
         {
           option: this.variants[0].id,
-          tags: []
+          tags: [],
+          selectedOption: null,
         }
       ],
       product_variant_prices: [],
       dropzoneOptions: {
-        url: 'https://httpbin.org/post',
+        url: 'https://httpbin.org/post',// Change this to your actual image upload URL
         thumbnailWidth: 150,
         maxFilesize: 0.5,
         headers: {"My-Awesome-Header": "header value"}
       }
     }
   },
+
+
+
   methods: {
+ 
+    // Fetch product data for update
+    fetchProductData() {
+      if (!this.productId) {
+        console.error('Product ID is undefined.');
+        return;
+      }
+      
+      axios.get(`/product/update-product/${this.productId}/`)
+        .then(response => {
+          // console.log(response.data.results)
+          const productData = response.data.results;
+
+          this.product_name = productData.title;
+          this.product_sku  = productData.sku;
+          this.description  = productData.description;
+
+          const variantData = productData.product_variant;
+          this.product_variant = Object.entries(variantData).map(([key, value]) => {
+            // console.log("key =", key, "value =", value); // Log key and value
+            const varient_id = key.split('-')[0];
+            return {
+              position: key,
+              v_id: varient_id,
+              tags: value.map(item => item.variant_title),
+              selectedOption: null,
+            };
+          });
+
+          // this.product_variant_prices = productData.product_variant_prices;
+        })
+        .catch(error => {
+          console.error('Error fetching product data:', error);
+        });
+    },
+
+    updateProduct() {
+        const payload = {
+            title: this.product_name,
+            sku: this.product_sku,
+            description: this.description,
+
+            product_variant: this.product_variant.map(item => ({
+               variant: item.option, 
+               variant_title: item.tags 
+              })),
+        };
+
+        axios.defaults.xsrfCookieName = 'csrftoken';
+        axios.defaults.xsrfHeaderName = 'X-CSRFToken';
+
+        axios.patch(`/product/update-product/${this.productId}/`, payload)
+            .then(response => {
+                // Handle successful update response
+                console.log(response.data);
+            })
+            .catch(error => {
+                // Handle error
+                console.error('Error updating product:', error);
+            });
+    },
+
     // it will push a new object into product variant
     newVariant() {
       let all_variants = this.variants.map(el => el.id)
@@ -178,38 +266,20 @@ export default {
       return ans;
     },
 
-    // Prepare data to send
-    saveProduct() {
-      let product = {
-        title: this.product_name,
-        sku: this.product_sku,
-        description: this.description,
-
-        product_images: this.images, 
-
-        variants: this.product_variant.map(item => ({ variant: item.option, variant_title: item.tags })),
-
-        prices: this.product_variant_prices
-      };
-
-    axios.defaults.xsrfCookieName = 'csrftoken';
-    axios.defaults.xsrfHeaderName = 'X-CSRFToken';
-
-    axios.post('/product/create-product/', product)
-      .then(response => {
-          console.log(response.data);
-      })
-      .catch(error => {
-          console.log(error);
-      });
-
-      console.log(product);
-    }
-
 
   },
+
+
+
   mounted() {
+    // Fetch product data on component mount
+    // console.log('Product ID:', this.productId);
+    this.fetchProductData();
+   
     console.log('Component mounted.')
+
   }
+  
 }
+
 </script>
